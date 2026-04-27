@@ -14,6 +14,7 @@ from singer_sdk.helpers._batch import (
     BatchFileFormat,
 )
 from singer_sdk.helpers._typing import conform_record_data_types
+from singer_sdk.singerlib.json import serialize_json
 from singer_sdk.sinks import SQLSink
 from snowflake.sqlalchemy.base import SnowflakeIdentifierPreparer
 from snowflake.sqlalchemy.snowdialect import SnowflakeDialect
@@ -44,6 +45,7 @@ class SnowflakeSink(SQLSink[SnowflakeConnector]):
     ) -> None:
         """Initialize Snowflake Sink."""
         self.target = target
+        self._batch_bytes = 0
         super().__init__(
             target=target,
             stream_name=stream_name,
@@ -51,6 +53,20 @@ class SnowflakeSink(SQLSink[SnowflakeConnector]):
             key_properties=key_properties,
             connector=connector,
         )
+
+    def start_batch(self, context: dict) -> None:
+        self._batch_bytes = 0
+
+    def process_record(self, record: dict, context: dict) -> None:
+        self._batch_bytes += len(serialize_json(record).encode())
+        super().process_record(record, context)
+
+    @property
+    def is_full(self) -> bool:
+        if super().is_full:
+            return True
+        max_bytes = self.config.get("batch_size_bytes")
+        return max_bytes is not None and self._batch_bytes >= max_bytes
 
     @property
     def schema_name(self) -> str | None:
